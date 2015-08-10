@@ -2,6 +2,7 @@ import logging
 import re
 import traceback
 import enum
+import shutil
 
 
 def log_record_factory(name, level, fn, lno, msg,
@@ -31,13 +32,20 @@ class ANSIColors(enum.Enum):
 
 
 class IridescentFormatter(logging.Formatter):
-    def __init__(self, use_color=True, *args, **kwargs):
+    def __init__(self, use_color=True, width=None, *args, **kwargs):
         if not kwargs:
             kwargs = {"fmt": "{message} [{name}:{funcName} - {asctime} -"
                              " {filename}:{lineno}]",
                       "datefmt": "%H:%M:%S"}
+
         super().__init__(*args, **kwargs)
+
         self.use_color = use_color
+        if width is not None:
+            self.width = width
+        else:
+            self.width = shutil.get_terminal_size((0, 0)).columns
+
         self.levels = {logging.DEBUG: (ANSIColors.b, "D", "", " ->"),
                        logging.INFO: (ANSIColors.g, "I", "", "==>"),
                        logging.WARNING: (ANSIColors.y, "W", "WARNING: ",
@@ -91,11 +99,20 @@ class IridescentFormatter(logging.Formatter):
     def format(self, record):
         color, letter, name, arrow = self.levels[record.levelno]
 
+        time = self.formatTime(record, self.datefmt)
         msg = self._fmt.format(message=str(record.msg),
-                               asctime=self.formatTime(record, self.datefmt),
+                               asctime=time,
                                **record.__dict__)
 
-        text = (self.colorise(arrow + " " + name, color)
+        start = arrow + " " + name
+        padding = " " * max(0, self.width - len(start) - len(msg)
+                            - (not self.use_color))
+        if padding:
+            msg = self._fmt.format(message=str(record.msg + padding),
+                                   asctime=time,
+                                   **record.__dict__)
+
+        text = (self.colorise(start, color)
                 + self.colorise(msg, ANSIColors.white))
 
         if record.exc_info is not None:
@@ -106,11 +123,11 @@ class IridescentFormatter(logging.Formatter):
         return text
 
 
-def quick_setup(name=None, level=logging.DEBUG, use_color=True):
+def quick_setup(name=None, level=logging.DEBUG, **kwargs):
     logger = logging.getLogger(name)
     logger.setLevel(level)
 
-    log_formatter = IridescentFormatter(use_color=use_color)
+    log_formatter = IridescentFormatter(**kwargs)
 
     stream_hndlr = logging.StreamHandler()
     stream_hndlr.setFormatter(log_formatter)
