@@ -3,22 +3,20 @@ import re
 import traceback
 import enum
 import shutil
+import time
 
 
-def log_record_factory(name, level, fn, lno, msg,
-                       args, exc_info, func=None, sinfo=None,
-                       old_log_record_factory=logging.getLogRecordFactory(),
-                       **kwargs):
+def log_record_factory(*args, factory=logging.getLogRecordFactory(), **kwargs):
     """Allow str.format style for log messages"""
+    msg, format_args = args[4:6]
     msg = str(msg)
-    if args:
+    if format_args:
         try:
-            msg = msg % args
+            msg = msg % format_args
         except TypeError:
-            msg = msg.format(*args)
+            msg = msg.format(*format_args)
 
-    return old_log_record_factory(name, level, fn, lno, msg, (), exc_info,
-                                  func, sinfo, **kwargs)
+    return factory(*(args[:4] + (msg, ()) + args[6:]), **kwargs)
 
 logging.setLogRecordFactory(log_record_factory)
 
@@ -32,11 +30,35 @@ class ANSIColors(enum.Enum):
 
 
 class IridescentFormatter(logging.Formatter):
+    levels = {logging.DEBUG: (ANSIColors.b, "D", "", " ->"),
+              logging.INFO: (ANSIColors.g, "I", "", "==>"),
+              logging.WARNING: (ANSIColors.y, "W", "WARNING: ", "==>"),
+              logging.ERROR: (ANSIColors.r, "E", "ERROR: ", "==>"),
+              logging.CRITICAL: (ANSIColors.r, "C", "CRITICAL: ", "==>")}
+
+    fmt = "{message} [{name}:{funcName} - {asctime} - {filename}:{lineno}]"
+    datefmt = "%H:%M:%S"
+
+    traceback_top_line = (re.compile(r"(Traceback)"
+                                     r"( \(most recent call last\):)$"),
+                          (ANSIColors.r, ANSIColors.white))
+
+    traceback_file_line = (re.compile(r"(  File )(\".*?\")(, line )"
+                                      r"(\d+)(, in )(.*)(\n.*)$"),
+                           (ANSIColors.white, ANSIColors.black,
+                            ANSIColors.white, ANSIColors.black,
+                            ANSIColors.white, ANSIColors.y, None))
+
+    traceback_name_line = (re.compile(r"([.\w]+:?)(.*)$"),
+                           (ANSIColors.r, ANSIColors.white))
+
+    traceback_cause_line = (re.compile("(\nThe above exception.*:\n|"
+                                       "\nDuring handling of.*:\n)"),
+                            (ANSIColors.y,))
+
     def __init__(self, use_color=True, width=None, *args, **kwargs):
         if not kwargs:
-            kwargs = {"fmt": "{message} [{name}:{funcName} - {asctime} -"
-                             " {filename}:{lineno}]",
-                      "datefmt": "%H:%M:%S"}
+            kwargs = {"fmt": self.fmt, "datefmt": self.datefmt}
 
         super().__init__(*args, **kwargs)
 
@@ -46,81 +68,64 @@ class IridescentFormatter(logging.Formatter):
         else:
             self.width = shutil.get_terminal_size((0, 0)).columns
 
-        self.levels = {logging.DEBUG: (ANSIColors.b, "D", "", " ->"),
-                       logging.INFO: (ANSIColors.g, "I", "", "==>"),
-                       logging.WARNING: (ANSIColors.y, "W", "WARNING: ",
-                                         "==>"),
-                       logging.ERROR: (ANSIColors.r, "E", "ERROR: ", "==>"),
-                       logging.CRITICAL: (ANSIColors.r, "C", "CRITICAL: ",
-                                          "==>")}
-
-    def colorise(self, s, col, bg=False):
-        if not self.use_color:
-            return s
+    def colorise(self, text, col, background=False):
+        if not self.use_color or col is None:
+            return text
         col = col.value if isinstance(col, ANSIColors) else col
-        if bg:
+        if background:
             col += 10
-        return "\033[1;%dm%s\033[1;m" % (col, s)
+        return "\033[1;{}m{}\033[1;m".format(col, text)
 
-    def format_traceback(self, exc):
-        yield ""
-        if exc.__cause__:
-            yield from self.format_traceback(exc.__context__)
-            yield ""
-            yield self.colorise("The above exception was the direct cause"
-                                " of the following exception:", ANSIColors.y)
-            yield ""
-        if exc.__context__ and not exc.__suppress_context__:
-            yield from self.format_traceback(exc.__context__)
-            yield ""
-            yield self.colorise("During handling of the above exception,"
-                                " another exception occurred:", ANSIColors.y)
-            yield ""
-
-        yield (self.colorise("Traceback", ANSIColors.r)
-               + self.colorise(" (most recent call last):", ANSIColors.white))
-        for file, line, func, text in traceback.extract_tb(exc.__traceback__):
-            line = ""
-            line += self.colorise("  File ", ANSIColors.white)
-            line += self.colorise("\"" + file + "\"", ANSIColors.black)
-            line += self.colorise(", line ", ANSIColors.white)
-            line += self.colorise(line, ANSIColors.black)
-            if func is not None:
-                line += self.colorise(", in ", ANSIColors.white)
-                line += self.colorise(func, ANSIColors.y)
-            yield line
-            yield "    " + text
-
-        yield (self.colorise(exc.__class__.__name__
-                             + (": " if exc.args else ""), ANSIColors.r)
-               + self.colorise(" ".join(map(str, exc.args)), ANSIColors.white))
-        yield ""
+    def format_exc_text(self, exc_text):
+        if not self.use_color:
+            yield from exc_text
+            return
+        for line in exc_text:
+            for regex, colors in [self.traceback_top_line,
+                                  self.traceback_file_line,
+                                  self.traceback_name_line,
+                                  self.traceback_cause_line]:
+                match = regex.match(line)
+                if match:
+                    yield "".join(map(self.colorise,
+                                      match.groups(), colors)) + "\n"
+                    break
+            else:
+                yield line
 
     def format(self, record):
-        color, letter, name, arrow = self.levels[record.levelno]
+        exc = record.exc_info and traceback.format_exception(*record.exc_info)
+        return self.do_format(record.levelno, str(record.msg),
+                              record.name, record.funcName,
+                              record.created, record.filename,
+                              record.lineno, exc)
 
-        time = self.formatTime(record, self.datefmt)
-        msg = self._fmt.format(message=str(record.msg),
-                               asctime=time,
-                               **record.__dict__)
+    def do_format(self, level, msg, module,
+                  func, created, file, line, exc_text):
+        color, letter, name, arrow = self.levels[level]
 
-        start = arrow + " " + name
-        padding = " " * max(0, self.width - len(start) - len(msg)
+        created = time.strftime(self.datefmt, time.localtime(created))
+        fmsg = self._fmt.format(message=msg,
+                                asctime=created,
+                                level=level, name=module,
+                                funcName=func, created=created,
+                                filename=file, lineno=line)
+
+        arrow = arrow + " " + name
+        padding = " " * max(0, self.width - len(arrow) - len(fmsg)
                             - (not self.use_color))
         if padding:
-            msg = self._fmt.format(message=str(record.msg + padding),
-                                   asctime=time,
-                                   **record.__dict__)
+            fmsg = fmsg.replace(msg, msg + padding)
 
-        text = (self.colorise(start, color)
-                + self.colorise(msg, ANSIColors.white))
+        fmsg = (self.colorise(arrow, color)
+                + self.colorise(fmsg, ANSIColors.white))
 
-        if record.exc_info is not None:
-            text += "\n".join(self.format_traceback(record.exc_info[1]))
+        if exc_text is not None:
+            fmsg += "\n" + "".join(self.format_exc_text(exc_text))
 
         if not self.use_color:
-            text = letter + text
-        return text
+            fmsg = letter + fmsg
+        return fmsg
 
 
 def quick_setup(name=None, level=logging.DEBUG, **kwargs):

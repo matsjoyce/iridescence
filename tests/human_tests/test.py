@@ -11,9 +11,22 @@ logger.error("Detonator connection timeout, retrying")
 
 # Nest for a stack trace that actually has a stack
 def auto_destruct():
-    raise RuntimeError("Lost connection to detonator")
+    def send_msg():
+        def get_confimation():
+            def read_queue():
+                raise RuntimeError("Queue empty")
+            read_queue()
+        try:
+            get_confimation()
+        except RuntimeError as e:
+            raise IOError("Timeout") from e
+    send_msg()
+
 try:
-    auto_destruct()
+    try:
+        auto_destruct()
+    except Exception as e:
+        raise SystemError("Connection failed")
 except Exception as e:
     logger.exception("Auto-destruct mechanism failed. "
                      "Nuke activated.")
