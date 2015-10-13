@@ -68,7 +68,7 @@ class IridescentParser:
         nls = ""
         for line in log:
             decol_line = self.decolorise(line)
-            if any(True for *_, arrow in self.levels.values()
+            if any(True for *_, arrow, _ in self.levels.values()
                    if decol_line.startswith(arrow)  # use_color=True
                    or decol_line[1:].startswith(arrow)):  # use_color=False
                 break
@@ -89,7 +89,7 @@ class IridescentParser:
 
     def remove_arrow(self, line):
         start = max([arrow + " " + name
-                     for *_, name, arrow in self.levels.values()
+                     for *_, name, arrow, _ in self.levels.values()
                      if line.startswith(arrow + " " + name)] + [""], key=len)
         return line[len(start):]
 

@@ -30,11 +30,12 @@ class ANSIColors(enum.Enum):
 
 
 class IridescentFormatter(logging.Formatter):
-    levels = {logging.DEBUG: (ANSIColors.b, "D", "", " ->"),
-              logging.INFO: (ANSIColors.g, "I", "", "==>"),
-              logging.WARNING: (ANSIColors.y, "W", "WARNING: ", "==>"),
-              logging.ERROR: (ANSIColors.r, "E", "ERROR: ", "==>"),
-              logging.CRITICAL: (ANSIColors.r, "C", "CRITICAL: ", "==>")}
+    # Color, single letter for non-color mode, level indicator, arrow, color message
+    levels = {logging.DEBUG: (ANSIColors.b, "D", "", " ->", False),
+              logging.INFO: (ANSIColors.g, "I", "", "==>", False),
+              logging.WARNING: (ANSIColors.y, "W", "WARNING: ", "==>", False),
+              logging.ERROR: (ANSIColors.r, "E", "ERROR: ", "==>", False),
+              logging.CRITICAL: (ANSIColors.r, "C", "CRITICAL: ", "==>", True)}
 
     fmt = "{message} [{name}:{funcName} - {asctime} - {filename}:{lineno}]"
     datefmt = "%H:%M:%S"
@@ -102,7 +103,7 @@ class IridescentFormatter(logging.Formatter):
 
     def do_format(self, level, msg, module,
                   func, created, file, line, exc_text):
-        color, letter, name, arrow = self.levels[level]
+        color, letter, name, arrow, color_msg = self.levels[level]
 
         created = time.strftime(self.datefmt, time.localtime(created))
         fmsg = self._fmt.format(message=msg,
@@ -118,7 +119,8 @@ class IridescentFormatter(logging.Formatter):
             fmsg = fmsg.replace(msg, msg + padding)
 
         fmsg = (self.colorise(arrow, color)
-                + self.colorise(fmsg, ANSIColors.white))
+                + self.colorise(fmsg,
+                                color if color_msg else ANSIColors.white))
 
         if exc_text is not None:
             fmsg += "\n" + "".join(self.format_exc_text(exc_text))
