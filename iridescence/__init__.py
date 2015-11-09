@@ -4,6 +4,15 @@ import traceback
 import enum
 import shutil
 import time
+import inspect
+import pathlib
+
+
+try:
+    import __main__
+    main_fname = pathlib.Path(inspect.getabsfile(__main__)).resolve().parent
+except:
+    main_fname = None
 
 
 def log_record_factory(*args, factory=logging.getLogRecordFactory(), **kwargs):
@@ -98,12 +107,20 @@ class IridescentFormatter(logging.Formatter):
         exc = record.exc_info and traceback.format_exception(*record.exc_info)
         return self.do_format(record.levelno, str(record.msg),
                               record.name, record.funcName,
-                              record.created, record.filename,
+                              record.created, record.pathname,
                               record.lineno, exc)
 
     def do_format(self, level, msg, module,
                   func, created, file, line, exc_text):
         color, letter, name, arrow, color_msg = self.levels[level]
+
+        path = pathlib.Path(file)
+        file = path.name
+        if main_fname is not None:
+            try:
+                file = str(path.resolve().relative_to(main_fname))
+            except ValueError:
+                pass
 
         created = time.strftime(self.datefmt, time.localtime(created))
         fmsg = self._fmt.format(message=msg,
