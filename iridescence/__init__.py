@@ -23,7 +23,12 @@ def log_record_factory(*args, factory=logging.getLogRecordFactory(), **kwargs):
         try:
             msg = msg % format_args
         except TypeError:
-            msg = msg.format(*format_args)
+            try:
+                msg = msg.format(*format_args)
+            except:
+                pass
+        except:
+            pass
 
     return factory(*(args[:4] + (msg, ()) + args[6:]), **kwargs)
 
@@ -156,5 +161,5 @@ def quick_setup(name=None, level=logging.DEBUG, **kwargs):
     stream_hndlr = logging.StreamHandler()
     stream_hndlr.setFormatter(log_formatter)
 
-    logger.addHandler(stream_hndlr)
+    logger.handlers = [stream_hndlr]
     return logger
