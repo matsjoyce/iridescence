@@ -33,3 +33,7 @@ except Exception as e:
 
 logger.critical("YOU ARE GOING TO DIE!!!")
 logger.info("Any way, back to reality...")
+logger.info("Really long " * 20)
+logger.info("Another really long " * 20)
+logger.info("""Long msg
+with paras""")

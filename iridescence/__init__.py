@@ -6,7 +6,8 @@ import shutil
 import time
 import inspect
 import pathlib
-
+import textwrap
+import threading
 
 try:
     import __main__
@@ -51,7 +52,7 @@ class IridescentFormatter(logging.Formatter):
               logging.ERROR: (ANSIColors.r, "E", "ERROR: ", "==>", False),
               logging.CRITICAL: (ANSIColors.r, "C", "CRITICAL: ", "==>", True)}
 
-    fmt = "{message} [{name}:{funcName} - {asctime} - {filename}:{lineno}]"
+    fmt = "[{name}:{funcName} - {asctime}:{thread_name} - {filename}:{lineno}]"
     datefmt = "%H:%M:%S"
 
     traceback_top_line = (re.compile(r"(Traceback)"
@@ -81,7 +82,7 @@ class IridescentFormatter(logging.Formatter):
         if width is not None:
             self.width = width
         else:
-            self.width = shutil.get_terminal_size((0, 0)).columns
+            self.width = shutil.get_terminal_size((80, 80)).columns
 
     def colorise(self, text, col, background=False):
         if not self.use_color or col is None:
@@ -117,6 +118,12 @@ class IridescentFormatter(logging.Formatter):
 
     def do_format(self, level, msg, module,
                   func, created, file, line, exc_text):
+        if level not in self.levels:
+            for i in self.levels:
+                if i >= level:
+                    level = i
+                    break
+
         color, letter, name, arrow, color_msg = self.levels[level]
 
         path = pathlib.Path(file)
@@ -128,17 +135,29 @@ class IridescentFormatter(logging.Formatter):
                 pass
 
         created = time.strftime(self.datefmt, time.localtime(created))
-        fmsg = self._fmt.format(message=msg,
-                                asctime=created,
+        thread = threading.current_thread()
+        fmsg = self._fmt.format(asctime=created,
                                 level=level, name=module,
                                 funcName=func, created=created,
-                                filename=file, lineno=line)
+                                filename=file, lineno=line,
+                                thread_name=thread.name,
+                                thread_id=thread.ident)
 
-        arrow = arrow + " " + name
-        padding = " " * max(0, self.width - len(arrow) - len(fmsg)
-                            - (not self.use_color))
-        if padding:
-            fmsg = fmsg.replace(msg, msg + padding)
+        arrow = " ".join([arrow, name])
+        if not self.use_color:
+            arrow = letter + arrow
+        tw = textwrap.TextWrapper(initial_indent=" " * len(arrow), subsequent_indent=" " * len(arrow), width=self.width)
+        wrapped_msg = []
+        for part in msg.splitlines():
+            wrapped_msg.extend(tw.wrap(part))
+            tw.initial_indent = tw.subsequent_indent
+
+        if len(wrapped_msg[-1]) + len(fmsg) > self.width:
+            wrapped_msg.append(" " * (self.width - len(fmsg)) + fmsg)
+        else:
+            wrapped_msg[-1] += " " * (self.width - len(fmsg) - len(wrapped_msg[-1])) + fmsg
+
+        fmsg = "\n".join(wrapped_msg)[len(arrow):]
 
         fmsg = (self.colorise(arrow, color)
                 + self.colorise(fmsg,
@@ -146,9 +165,6 @@ class IridescentFormatter(logging.Formatter):
 
         if exc_text is not None:
             fmsg += "\n" + "".join(self.format_exc_text(exc_text))
-
-        if not self.use_color:
-            fmsg = letter + fmsg
         return fmsg
 
 
